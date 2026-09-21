@@ -1,30 +1,24 @@
-import ollama
-import pyttsx3
 import speech_recognition as sr
-from faster_whisper import WhisperModel
-from difflib import SequenceMatcher
-import tempfile
-import os
-from voice_output import speak
 
+from voice_output import speak
+from wake_word import is_wake_word, clean_text
 from memory import (
     setup_memory,
     save_memory,
+    get_memory,
+    delete_memory,
     load_memories,
     show_memories
 )
+from brain import ask_soku
+from voice_input import transcribe_audio
 
+from intent import detect_intent
 
 
 # =========================================================
 # SETTINGS
 # =========================================================
-
-WAKE_WORD_TARGETS = [
-    "hey soku",
-    "hi soku",
-    "soku"
-]
 
 SLEEP_COMMANDS = [
     "go to sleep",
@@ -41,124 +35,26 @@ EXIT_COMMANDS = [
     "shut down",
     "shutdown"
 ]
+
+
+# =========================================================
+# INITIALIZE MEMORY
+# =========================================================
+
 setup_memory()
 
-# =========================================================
-# TEXT CLEANING
-# =========================================================
-
-def clean_text(text):
-    text = text.lower().strip()
-
-    for symbol in [
-        ",",
-        ".",
-        "!",
-        "?",
-        "'",
-        '"'
-    ]:
-        text = text.replace(symbol, "")
-
-    return text
-
 
 # =========================================================
-# WAKE WORD MATCHING
-# =========================================================
-
-def is_wake_word(text):
-    text = clean_text(text)
-
-    for target in WAKE_WORD_TARGETS:
-
-        similarity = SequenceMatcher(
-            None,
-            text,
-            target
-        ).ratio()
-
-        print(
-            f"Wake similarity with '{target}': "
-            f"{similarity:.2f}"
-        )
-
-        if similarity >= 0.60:
-            return True
-
-    return False
-
-
-# =========================================================
-# MICROPHONE
+# MICROPHONE SETTINGS
 # =========================================================
 
 recognizer = sr.Recognizer()
-
 recognizer.pause_threshold = 1.0
 recognizer.non_speaking_duration = 0.8
 
 
 # =========================================================
-# WHISPER
-# =========================================================
-
-print("Loading Soku speech model...")
-
-whisper = WhisperModel(
-    "base",
-    device="cpu",
-    compute_type="int8"
-)
-
-
-# =========================================================
-# SPEECH TO TEXT
-# =========================================================
-
-def transcribe_audio(audio, force_english=False):
-
-    with tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=".wav"
-    ) as temp_file:
-
-        temp_file.write(
-            audio.get_wav_data()
-        )
-
-        temp_path = temp_file.name
-
-    try:
-
-        if force_english:
-
-            segments, info = whisper.transcribe(
-                temp_path,
-                language="en"
-            )
-
-        else:
-
-            segments, info = whisper.transcribe(
-                temp_path
-            )
-
-        text = " ".join(
-            segment.text
-            for segment in segments
-        ).strip()
-
-        return text
-
-    finally:
-
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-
-# =========================================================
-# LOAD SAVED MEMORIES
+# LOAD SAVED MEMORY INTO AI CONTEXT
 # =========================================================
 
 saved_memories = load_memories()
@@ -166,14 +62,14 @@ saved_memories = load_memories()
 memory_context = ""
 
 if saved_memories:
-    memory_context = "\nKnown information about the user:\n"
+    memory_context = "\nSaved information about the user:\n"
 
-    for memory in saved_memories:
-        memory_context += f"- {memory}\n"
+    for key, value in saved_memories:
+        memory_context += f"- {key}: {value}\n"
 
 
 # =========================================================
-# CONVERSATION MEMORY
+# CONVERSATION SESSION
 # =========================================================
 
 messages = [
@@ -181,16 +77,48 @@ messages = [
         "role": "system",
         "content": (
             "Your name is Soku. "
-            "You are a private personal AI assistant. "
-            "You run locally on the user's computer. "
-            "You wake when the user says Hey Soku or a similar phrase. "
-            "Once awake, you stay awake for conversation. "
-            "You return to sleep only when the user asks you to sleep. "
-            "Be helpful, concise, and conversational."
+            "You are a private, local-first personal AI assistant. "
+            "Be helpful, concise, natural, and conversational. "
+            "Never invent or guess personal information about the user. "
+            "Only claim to know personal information if it exists in saved memory. "
+            "If you do not know a personal fact, say that you do not know it yet. "
+            "Never claim that you saved, deleted, opened, changed, or performed "
+            "an action unless the Python system actually performed that action. "
+            "Once awake, remain awake until the user explicitly asks you to sleep."
             + memory_context
         )
     }
 ]
+
+
+# =========================================================
+# REFRESH MEMORY CONTEXT
+# =========================================================
+
+def refresh_memory_context():
+    saved = load_memories()
+
+    context = "\nSaved information about the user:\n"
+
+    if not saved:
+        context += "- No saved personal information.\n"
+
+    else:
+        for key, value in saved:
+            context += f"- {key}: {value}\n"
+
+    messages[0]["content"] = (
+        "Your name is Soku. "
+        "You are a private, local-first personal AI assistant. "
+        "Be helpful, concise, natural, and conversational. "
+        "Never invent or guess personal information about the user. "
+        "Only claim to know personal information if it exists in saved memory. "
+        "If you do not know a personal fact, say that you do not know it yet. "
+        "Never claim that you saved, deleted, opened, changed, or performed "
+        "an action unless the Python system actually performed that action. "
+        "Once awake, remain awake until the user explicitly asks you to sleep."
+        + context
+    )
 
 
 # =========================================================
@@ -219,7 +147,6 @@ while True:
             )
 
             try:
-
                 audio = recognizer.listen(
                     source,
                     timeout=10,
@@ -235,9 +162,7 @@ while True:
             force_english=True
         )
 
-
         print("Heard:", wake_text)
-
 
         if not wake_text:
             continue
@@ -270,7 +195,6 @@ while True:
             )
 
             try:
-
                 command_audio = recognizer.listen(
                     source,
                     timeout=15,
@@ -278,7 +202,6 @@ while True:
                 )
 
             except sr.WaitTimeoutError:
-
                 print("No speech detected.")
                 continue
 
@@ -306,6 +229,7 @@ while True:
             user_message
         )
 
+        intent, value = detect_intent(command)
 
         # =================================================
         # SLEEP COMMAND
@@ -319,15 +243,13 @@ while True:
             print("Soku: Going to sleep.")
             speak("Going to sleep.")
 
-            print(
-                "\nSoku is sleeping again."
-            )
+            print("\nSoku is sleeping again.")
 
             break
 
 
         # =================================================
-        # EXIT PROGRAM
+        # EXIT COMMAND
         # =================================================
 
         if any(
@@ -342,59 +264,145 @@ while True:
 
 
         # =================================================
-        # SAVE MEMORY
+        # SAVE / UPDATE USER NAME
         # =================================================
 
-        if command.startswith("remember that "):
+        name = None
 
-            memory = user_message[
-                len("remember that "):
+        if command.startswith("my name is "):
+
+            name = user_message[
+                len("my name is "):
             ].strip()
 
-            if memory:
 
-                save_memory(memory)
+        elif command.startswith("save my name as "):
 
-                print(
-                    f"Soku: I will remember that {memory}."
-                )
+            name = user_message[
+                len("save my name as "):
+            ].strip()
 
-                speak(
-                    f"I will remember that {memory}."
-                )
+
+        elif command.startswith("remember my name as "):
+
+            name = user_message[
+                len("remember my name as "):
+            ].strip()
+
+
+        elif command.startswith("change my name to "):
+
+            name = user_message[
+                len("change my name to "):
+            ].strip()
+
+
+        elif command.startswith("update my name to "):
+
+            name = user_message[
+                len("update my name to "):
+            ].strip()
+
+
+        if name:
+
+            name = name.rstrip(".,!?")
+
+            save_memory(
+                "name",
+                name
+            )
+
+            refresh_memory_context()
+
+            reply = (
+                f"I'll remember that your name is {name}."
+            )
+
+            print("Soku:", reply)
+            speak(reply)
 
             continue
 
 
         # =================================================
-        # SHOW MEMORY
+        # ASK USER NAME
+        # =================================================
+
+        if (
+            "what is my name" in command
+            or "whats my name" in command
+            or "do you remember the name" in command
+            or "do you remember my name" in command
+        ):
+
+            name = get_memory(
+                "name"
+            )
+
+            if name:
+                reply = f"Your name is {name}."
+
+            else:
+                reply = (
+                    "I don't have your name saved yet."
+                )
+
+            print("Soku:", reply)
+            speak(reply)
+
+            continue
+
+
+        # =================================================
+        # FORGET USER NAME
+        # =================================================
+
+        if (
+            "forget my name" in command
+            or "delete my name" in command
+            or "remove my name" in command
+        ):
+
+            delete_memory(
+                "name"
+            )
+
+            refresh_memory_context()
+
+            reply = (
+                "I forgot your saved name."
+            )
+
+            print("Soku:", reply)
+            speak(reply)
+
+            continue
+
+
+        # =================================================
+        # SHOW SAVED MEMORY
         # =================================================
 
         if (
             "what do you remember" in command
+            or "do you remember anything" in command
             or "show memories" in command
             or "show memory" in command
         ):
 
             memories = show_memories()
 
-            print(
-                "Soku memory:"
-            )
+            print("\nSoku memory:")
+            print(memories)
 
-            print(
-                memories
-            )
-
-            speak(
-                memories
-            )
+            speak(memories)
 
             continue
 
 
         # =================================================
-        # USER MESSAGE
+        # ADD USER MESSAGE TO SESSION MEMORY
         # =================================================
 
         messages.append(
@@ -409,21 +417,28 @@ while True:
         # ASK LOCAL AI
         # =================================================
 
-        response = ollama.chat(
-            model="phi3",
-            messages=messages
-        )
+        try:
 
+            soku_reply = ask_soku(
+                messages
+            )
 
-        soku_reply = response[
-            "message"
-        ][
-            "content"
-        ]
+        except Exception as error:
+
+            print(
+                "\nSoku AI error:",
+                error
+            )
+
+            speak(
+                "I had a problem running my local AI model."
+            )
+
+            continue
 
 
         # =================================================
-        # SAVE RESPONSE
+        # SAVE RESPONSE IN SESSION MEMORY
         # =================================================
 
         messages.append(

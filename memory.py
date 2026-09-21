@@ -1,5 +1,6 @@
 import sqlite3
 
+
 DB_NAME = "soku_memory.db"
 
 
@@ -9,9 +10,9 @@ def setup_memory():
 
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS memories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            memory TEXT NOT NULL
+        CREATE TABLE IF NOT EXISTS profile_memory (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
         )
         """
     )
@@ -20,13 +21,57 @@ def setup_memory():
     connection.close()
 
 
-def save_memory(memory):
+def save_memory(key, value):
     connection = sqlite3.connect(DB_NAME)
     cursor = connection.cursor()
 
     cursor.execute(
-        "INSERT INTO memories (memory) VALUES (?)",
-        (memory,)
+        """
+        INSERT INTO profile_memory (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key)
+        DO UPDATE SET value = excluded.value
+        """,
+        (key, value)
+    )
+
+    connection.commit()
+    connection.close()
+
+
+def get_memory(key):
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT value
+        FROM profile_memory
+        WHERE key = ?
+        """,
+        (key,)
+    )
+
+    result = cursor.fetchone()
+
+    connection.close()
+
+    if result:
+        return result[0]
+
+    return None
+
+
+def delete_memory(key):
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        DELETE FROM profile_memory
+        WHERE key = ?
+        """,
+        (key,)
     )
 
     connection.commit()
@@ -37,21 +82,27 @@ def load_memories():
     connection = sqlite3.connect(DB_NAME)
     cursor = connection.cursor()
 
-    cursor.execute("SELECT memory FROM memories")
+    cursor.execute(
+        """
+        SELECT key, value
+        FROM profile_memory
+        """
+    )
+
     rows = cursor.fetchall()
 
     connection.close()
 
-    return [row[0] for row in rows]
+    return rows
 
 
 def show_memories():
     memories = load_memories()
 
     if not memories:
-        return "I don't have any saved memories yet."
+        return "I don't have any saved personal information yet."
 
     return "\n".join(
-        f"- {memory}"
-        for memory in memories
+        f"{key}: {value}"
+        for key, value in memories
     )
