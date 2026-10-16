@@ -1,463 +1,164 @@
 import speech_recognition as sr
 
-from voice_output import speak
-from wake_word import is_wake_word, clean_text
-from memory import (
-    setup_memory,
-    save_memory,
-    get_memory,
-    delete_memory,
-    load_memories,
-    show_memories
-)
+from actions import media, open_app, open_website, scroll
 from brain import ask_soku
-from voice_input import transcribe_audio
-
+from config import EXIT_COMMANDS, SLEEP_COMMANDS
 from intent import detect_intent
-
-
-# =========================================================
-# SETTINGS
-# =========================================================
-
-SLEEP_COMMANDS = [
-    "go to sleep",
-    "sleep",
-    "stop listening",
-    "go back to sleep",
-    "sleep now"
-]
-
-EXIT_COMMANDS = [
-    "exit",
-    "quit",
-    "goodbye",
-    "shut down",
-    "shutdown"
-]
-
-
-# =========================================================
-# INITIALIZE MEMORY
-# =========================================================
+from memory import (
+    delete_memory,
+    get_memory,
+    save_memory,
+    setup_memory,
+    show_memories,
+)
+from voice_input import transcribe_audio
+from voice_output import speak, speak_async
+from wake_word import clean_text, is_wake_word
 
 setup_memory()
-
-
-# =========================================================
-# MICROPHONE SETTINGS
-# =========================================================
 
 recognizer = sr.Recognizer()
 recognizer.pause_threshold = 1.0
 recognizer.non_speaking_duration = 0.8
 
+messages = []
 
-# =========================================================
-# LOAD SAVED MEMORY INTO AI CONTEXT
-# =========================================================
-
-saved_memories = load_memories()
-
-memory_context = ""
-
-if saved_memories:
-    memory_context = "\nSaved information about the user:\n"
-
-    for key, value in saved_memories:
-        memory_context += f"- {key}: {value}\n"
-
-
-# =========================================================
-# CONVERSATION SESSION
-# =========================================================
-
-messages = [
-    {
-        "role": "system",
-        "content": (
-            "Your name is Soku. "
-            "You are a private, local-first personal AI assistant. "
-            "Be helpful, concise, natural, and conversational. "
-            "Never invent or guess personal information about the user. "
-            "Only claim to know personal information if it exists in saved memory. "
-            "If you do not know a personal fact, say that you do not know it yet. "
-            "Never claim that you saved, deleted, opened, changed, or performed "
-            "an action unless the Python system actually performed that action. "
-            "Once awake, remain awake until the user explicitly asks you to sleep."
-            + memory_context
-        )
-    }
-]
-
-
-# =========================================================
-# REFRESH MEMORY CONTEXT
-# =========================================================
-
-def refresh_memory_context():
-    saved = load_memories()
-
-    context = "\nSaved information about the user:\n"
-
-    if not saved:
-        context += "- No saved personal information.\n"
-
+def reply(text, async_voice=False):
+    print("Soku:", text)
+    if async_voice:
+        speak_async(text)
     else:
-        for key, value in saved:
-            context += f"- {key}: {value}\n"
+        speak(text)
 
-    messages[0]["content"] = (
-        "Your name is Soku. "
-        "You are a private, local-first personal AI assistant. "
-        "Be helpful, concise, natural, and conversational. "
-        "Never invent or guess personal information about the user. "
-        "Only claim to know personal information if it exists in saved memory. "
-        "If you do not know a personal fact, say that you do not know it yet. "
-        "Never claim that you saved, deleted, opened, changed, or performed "
-        "an action unless the Python system actually performed that action. "
-        "Once awake, remain awake until the user explicitly asks you to sleep."
-        + context
-    )
-
-
-# =========================================================
-# START
-# =========================================================
+def listen_for_phrase(source, timeout, phrase_time_limit):
+    try:
+        return recognizer.listen(
+            source,
+            timeout=timeout,
+            phrase_time_limit=phrase_time_limit,
+        )
+    except sr.WaitTimeoutError:
+        return None
 
 print("\nSoku is sleeping.")
 print("Say 'Hey Soku' to wake me.")
 
-
 while True:
-
-    # =====================================================
+    # -------------------------
     # SLEEP MODE
-    # =====================================================
-
+    # -------------------------
     while True:
-
         with sr.Microphone() as source:
-
             print("\nListening for wake word...")
+            recognizer.adjust_for_ambient_noise(source, duration=0.4)
+            audio = listen_for_phrase(source, timeout=10, phrase_time_limit=5)
 
-            recognizer.adjust_for_ambient_noise(
-                source,
-                duration=0.5
-            )
-
-            try:
-                audio = recognizer.listen(
-                    source,
-                    timeout=10,
-                    phrase_time_limit=5
-                )
-
-            except sr.WaitTimeoutError:
-                continue
-
-
-        wake_text = transcribe_audio(
-            audio,
-            force_english=True
-        )
-
-        print("Heard:", wake_text)
-
-        if not wake_text:
+        if audio is None:
             continue
 
+        wake_text = transcribe_audio(audio, force_english=True)
+        print("Heard:", wake_text)
 
-        if is_wake_word(wake_text):
-
-            print("Soku: Yes?")
-            speak("Yes?")
-
+        if wake_text and is_wake_word(wake_text):
+            reply("Yes?")
             break
-
-
-    # =====================================================
-    # AWAKE MODE
-    # =====================================================
 
     print("\nSoku is awake.")
 
-
+    # -------------------------
+    # AWAKE MODE
+    # -------------------------
     while True:
-
         with sr.Microphone() as source:
-
             print("\nListening for command...")
-
-            recognizer.adjust_for_ambient_noise(
+            recognizer.adjust_for_ambient_noise(source, duration=0.25)
+            command_audio = listen_for_phrase(
                 source,
-                duration=0.3
+                timeout=20,
+                phrase_time_limit=25,
             )
 
-            try:
-                command_audio = recognizer.listen(
-                    source,
-                    timeout=15,
-                    phrase_time_limit=20
-                )
-
-            except sr.WaitTimeoutError:
-                print("No speech detected.")
-                continue
-
-
-        print("Understanding...")
-
-
-        user_message = transcribe_audio(
-            command_audio
-        )
-
-
-        if not user_message:
-
-            print("Soku: I didn't catch that.")
-            speak("I didn't catch that.")
-
+        if command_audio is None:
+            print("No speech detected.")
             continue
 
+        print("Understanding...")
+        user_message = transcribe_audio(command_audio)
+
+        if not user_message:
+            reply("I didn't catch that.")
+            continue
 
         print("You:", user_message)
+        command = clean_text(user_message)
 
+        if any(x in command for x in SLEEP_COMMANDS):
+            reply("Going to sleep.")
+            print("\nSoku is sleeping again.")
+            break
 
-        command = clean_text(
-            user_message
-        )
+        if any(x in command for x in EXIT_COMMANDS):
+            reply("Goodbye.")
+            raise SystemExit
 
         intent, value = detect_intent(command)
 
-        # =================================================
-        # SLEEP COMMAND
-        # =================================================
-
-        if any(
-            sleep_command in command
-            for sleep_command in SLEEP_COMMANDS
-        ):
-
-            print("Soku: Going to sleep.")
-            speak("Going to sleep.")
-
-            print("\nSoku is sleeping again.")
-
-            break
-
-
-        # =================================================
-        # EXIT COMMAND
-        # =================================================
-
-        if any(
-            exit_command in command
-            for exit_command in EXIT_COMMANDS
-        ):
-
-            print("Soku: Goodbye.")
-            speak("Goodbye.")
-
-            raise SystemExit
-
-
-        # =================================================
-        # SAVE / UPDATE USER NAME
-        # =================================================
-
-        name = None
-
-        if command.startswith("my name is "):
-
-            name = user_message[
-                len("my name is "):
-            ].strip()
-
-
-        elif command.startswith("save my name as "):
-
-            name = user_message[
-                len("save my name as "):
-            ].strip()
-
-
-        elif command.startswith("remember my name as "):
-
-            name = user_message[
-                len("remember my name as "):
-            ].strip()
-
-
-        elif command.startswith("change my name to "):
-
-            name = user_message[
-                len("change my name to "):
-            ].strip()
-
-
-        elif command.startswith("update my name to "):
-
-            name = user_message[
-                len("update my name to "):
-            ].strip()
-
-
-        if name:
-
-            name = name.rstrip(".,!?")
-
-            save_memory(
-                "name",
-                name
-            )
-
-            refresh_memory_context()
-
-            reply = (
-                f"I'll remember that your name is {name}."
-            )
-
-            print("Soku:", reply)
-            speak(reply)
-
+        # Memory
+        if intent == "set_name":
+            save_memory("name", value)
+            reply(f"I'll remember that your name is {value}.")
             continue
 
-
-        # =================================================
-        # ASK USER NAME
-        # =================================================
-
-        if (
-            "what is my name" in command
-            or "whats my name" in command
-            or "do you remember the name" in command
-            or "do you remember my name" in command
-        ):
-
-            name = get_memory(
-                "name"
+        if intent == "get_name":
+            name = get_memory("name")
+            reply(
+                f"Your name is {name}."
+                if name
+                else "I don't have your name saved yet."
             )
-
-            if name:
-                reply = f"Your name is {name}."
-
-            else:
-                reply = (
-                    "I don't have your name saved yet."
-                )
-
-            print("Soku:", reply)
-            speak(reply)
-
             continue
 
-
-        # =================================================
-        # FORGET USER NAME
-        # =================================================
-
-        if (
-            "forget my name" in command
-            or "delete my name" in command
-            or "remove my name" in command
-        ):
-
-            delete_memory(
-                "name"
-            )
-
-            refresh_memory_context()
-
-            reply = (
-                "I forgot your saved name."
-            )
-
-            print("Soku:", reply)
-            speak(reply)
-
+        if intent == "forget_name":
+            delete_memory("name")
+            reply("I forgot your saved name.")
             continue
 
-
-        # =================================================
-        # SHOW SAVED MEMORY
-        # =================================================
-
-        if (
-            "what do you remember" in command
-            or "do you remember anything" in command
-            or "show memories" in command
-            or "show memory" in command
-        ):
-
-            memories = show_memories()
-
-            print("\nSoku memory:")
-            print(memories)
-
-            speak(memories)
-
+        if intent == "show_memory":
+            reply(show_memories())
             continue
 
+        # Secure actions
+        if intent == "open_app":
+            _, message = open_app(value)
+            reply(message)
+            continue
 
-        # =================================================
-        # ADD USER MESSAGE TO SESSION MEMORY
-        # =================================================
+        if intent == "open_website":
+            _, message = open_website(value)
+            reply(message)
+            continue
 
-        messages.append(
-            {
-                "role": "user",
-                "content": user_message
-            }
-        )
+        if intent == "scroll":
+            _, message = scroll(value)
+            reply(message)
+            continue
 
+        if intent == "media":
+            _, message = media(value)
+            reply(message)
+            continue
 
-        # =================================================
-        # ASK LOCAL AI
-        # =================================================
+        # General local-AI conversation
+        messages.append({"role": "user", "content": user_message})
 
         try:
-
-            soku_reply = ask_soku(
-                messages
-            )
-
+            soku_reply = ask_soku(messages)
         except Exception as error:
-
-            print(
-                "\nSoku AI error:",
-                error
-            )
-
-            speak(
-                "I had a problem running my local AI model."
-            )
-
+            print("Soku AI error:", error)
+            reply("I had a problem running my local AI model.")
             continue
 
+        messages.append({"role": "assistant", "content": soku_reply})
 
-        # =================================================
-        # SAVE RESPONSE IN SESSION MEMORY
-        # =================================================
-
-        messages.append(
-            {
-                "role": "assistant",
-                "content": soku_reply
-            }
-        )
-
-
-        # =================================================
-        # OUTPUT
-        # =================================================
-
-        print(
-            "Soku:",
-            soku_reply
-        )
-
-        speak(
-            soku_reply
-        )
+        # Asynchronous voice is a first step toward interruption/barge-in.
+        reply(soku_reply, async_voice=True)

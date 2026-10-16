@@ -1,53 +1,25 @@
-from faster_whisper import WhisperModel
-import tempfile
 import os
-
+import tempfile
+from faster_whisper import WhisperModel
+from config import WHISPER_MODEL, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
 
 print("Loading Whisper model...")
 
 whisper = WhisperModel(
-    "base",
-    device="cpu",
-    compute_type="int8"
+    WHISPER_MODEL,
+    device=WHISPER_DEVICE,
+    compute_type=WHISPER_COMPUTE_TYPE,
 )
 
-
 def transcribe_audio(audio, force_english=False):
-
-    with tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=".wav"
-    ) as temp_file:
-
-        temp_file.write(
-            audio.get_wav_data()
-        )
-
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+        temp_file.write(audio.get_wav_data())
         temp_path = temp_file.name
 
     try:
-
-        if force_english:
-
-            segments, info = whisper.transcribe(
-                temp_path,
-                language="en"
-            )
-
-        else:
-
-            segments, info = whisper.transcribe(
-                temp_path
-            )
-
-        text = " ".join(
-            segment.text
-            for segment in segments
-        ).strip()
-
-        return text
-
+        kwargs = {"language": "en"} if force_english else {}
+        segments, _ = whisper.transcribe(temp_path, **kwargs)
+        return " ".join(segment.text for segment in segments).strip()
     finally:
-
         if os.path.exists(temp_path):
             os.remove(temp_path)

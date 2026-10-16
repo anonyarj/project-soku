@@ -1,40 +1,27 @@
 from difflib import SequenceMatcher
-
-
-WAKE_WORD_TARGETS = [
-    "hey soku",
-    "hi soku",
-    "soku"
-    "hey cool"
-    "so cool"
-]
-
+from config import WAKE_WORD_TARGETS, WAKE_THRESHOLD
 
 def clean_text(text):
-    text = text.lower().strip()
-
-    for symbol in [",", ".", "!", "?", "'", '"']:
+    text = (text or "").lower().strip()
+    for symbol in [",", ".", "!", "?", "'", '"', ":", ";"]:
         text = text.replace(symbol, "")
-
-    return text
-
+    return " ".join(text.split())
 
 def is_wake_word(text):
     text = clean_text(text)
+    if not text:
+        return False
 
     for target in WAKE_WORD_TARGETS:
-        similarity = SequenceMatcher(
-            None,
-            text,
-            target
-        ).ratio()
+        target_clean = clean_text(target)
 
-        print(
-            f"Wake similarity with '{target}': "
-            f"{similarity:.2f}"
-        )
+        if target_clean in text:
+            return True
 
-        if similarity >= 0.60:
+        similarity = SequenceMatcher(None, text, target_clean).ratio()
+        print(f"Wake similarity with '{target}': {similarity:.2f}")
+
+        if similarity >= WAKE_THRESHOLD:
             return True
 
     return False

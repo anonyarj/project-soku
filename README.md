@@ -1,128 +1,71 @@
-\# Project Soku
+# Project Soku
 
+Soku is a privacy-first, local-first personal AI assistant for Windows.
 
+## Current v1 capabilities
 
-Project Soku is a privacy-first personal AI assistant designed to run locally on a user's device.
+- Wake phrase with fuzzy matching
+- Local speech-to-text with Faster Whisper
+- Local LLM through Ollama
+- Multi-turn conversation
+- Persistent SQLite memory
+- Local text-to-speech
+- Secure allowlisted desktop actions
+- Open Chrome, VS Code, Calculator, and Notepad
+- Open allowlisted websites
+- Scroll and media controls
+- Local action logging
+- Experimental asynchronous speech for interruption/barge-in work
+- Optional camera face-presence detection
+- Optional hand gesture control
+- Modular security layer
 
+## Architecture
 
+Microphone -> Wake detection -> Whisper -> Intent router
+                                  |
+                                  +-> Secure Action Engine
+                                  |
+                                  +-> Memory
+                                  |
+                                  +-> Ollama LLM -> Speech
 
-\## Current Features
+## Security design
 
+Soku does not expose arbitrary shell execution. Desktop actions are routed through
+an allowlist. Website opening is limited to HTTPS and approved domains. High-risk
+actions such as deleting files, purchases, installing software, and changing
+security settings are intentionally not implemented without a confirmation layer.
 
+The local memory database and action logs should not be committed to GitHub.
 
-\- Local LLM inference using Ollama
+## Run
 
-\- Phi-3 language model
+```powershell
+.\.venv\Scripts\python.exe soku_main.py
+```
 
-\- Voice input through microphone
+## Optional computer-control packages
 
-\- Local speech-to-text using Faster Whisper
+```powershell
+.\.venv\Scripts\python.exe -m pip install pyautogui opencv-python
+```
 
-\- Text-to-speech responses
+For experimental gestures:
 
-\- Multi-turn conversation memory during a session
+```powershell
+.\.venv\Scripts\python.exe -m pip install mediapipe
+```
 
-\- Offline-first architecture
+Then:
 
+```powershell
+.\.venv\Scripts\python.exe gestures.py
+```
 
+## Important limitation
 
-\## Current Flow
-
-
-
-User Voice
-
-↓
-
-Microphone
-
-↓
-
-Faster Whisper
-
-↓
-
-Text
-
-↓
-
-Ollama + Phi-3
-
-↓
-
-AI Response
-
-↓
-
-Text-to-Speech
-
-↓
-
-Soku speaks
-
-
-
-\## Project Goal
-
-
-
-The long-term goal is to build a personalized AI assistant that can:
-
-
-
-\- Wake using "Hey Soku"
-
-\- Remember user preferences locally
-
-\- Control desktop applications
-
-\- Perform computer actions
-
-\- Connect to Android devices
-
-\- Control phone functions with permission
-
-\- Support multiple languages including Nepali
-
-\- Integrate with specialized applications
-
-\- Keep personal data stored locally
-
-\- Run offline whenever possible
-
-
-
-\## Technologies
-
-
-
-\- Python
-
-\- Ollama
-
-\- Phi-3
-
-\- Faster Whisper
-
-\- SpeechRecognition
-
-\- PyAudio
-
-\- pyttsx3
-
-
-
-\## Status
-
-
-
-Early development.
-
-
-
-Current milestone:
-
-
-
-Voice → Local Speech Recognition → Local LLM → Spoken Response
-
+This is a strong local assistant prototype, not a production-grade "Jarvis".
+Android phone control requires a separate Android companion app and authenticated
+device bridge. Emotion should not be inferred as fact from facial expressions;
+Soku can observe visible cues and ask the user how they are feeling.
